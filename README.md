@@ -38,25 +38,18 @@ Extend CronJob with more spec field for requirements
 
 ### Idea3: Deployment(Controller)
 
+Seprate delete action by event-trigger
+
 Typical controller:
 
 - Managed resources: unhealthy pods
-- Actions: delete, log and watch new pods
+- Actions: delete
 
-Get pod from API-Server by `Informer`. First time, get all pod list to cache, then watch the changes
-
-Get pods from Informer: PartialObjectMetadata, Exclude specific ns
-
-1. Determining unhealthy before enqueue
-
-    - Informer resync, resourceVersion is different
-    - Unhealthy, isHealthy == false
-
-2. Enqueu after internal
-
-Delete pods
+Difference: report need to be separated(interval run)
 
 ### Idea4: CronJob/Deployment, with same container implementation ☑️
+
+Runing once and multi times
 
 Using `Informer` to get pod list is more efficient and safer, it's not necessary to implement a different contaienr for CronJob
 
