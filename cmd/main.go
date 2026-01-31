@@ -2,8 +2,10 @@ package main
 
 import (
 	"flag"
+	"github.com/akii90/cleaner/pkg/cleaner"
 	"github.com/akii90/cleaner/pkg/config"
 	"github.com/akii90/cleaner/pkg/signals"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"time"
@@ -51,8 +53,20 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	// Run Cleaner
+	kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient, time.Hour*24)
 
+	// ctx, clientSet, informer
+	pc := cleaner.NewPodCleaner(kubeClient, kubeInformerFactory.Core().V1().Pods(), policy, cleaningInterval)
+
+	// Start Informer
+	logger.Info("Starting Informer...")
+	kubeInformerFactory.Start(ctx.Done())
+
+	// Run Cleaner
+	if err = pc.Run(ctx); err != nil {
+		logger.Error(err, "Error running cleaner")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
 }
 
 func init() {
