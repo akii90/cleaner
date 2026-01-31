@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/akii90/cleaner/pkg/config"
 	"github.com/akii90/cleaner/pkg/signals"
 	"time"
 
@@ -21,6 +22,17 @@ func main() {
 	// Set up signals so we handle the shutdown signal gracefully
 	ctx := signals.SetupSignalHandler()
 	logger := klog.FromContext(ctx)
+
+	// Load Policy
+	policy, err := config.LoadConfig(policyConfig)
+	if err != nil {
+		logger.Error(err, "Error loading policy config")
+	}
+	logger.Info("Pod cleaner policy conf",
+		"healthyStatus", policy.HealthyStatus,
+		"excludeNS", policy.ExcludeNamespaces,
+		"checkDelay", policy.CheckDelaySeconds,
+	)
 
 }
 

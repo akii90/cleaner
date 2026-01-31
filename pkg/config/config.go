@@ -13,16 +13,30 @@ type PolicyConfig struct {
 }
 
 // LoadConfig reads the configuration file from given path
+// Use default if path is not given
 func LoadConfig(path string) (*PolicyConfig, error) {
+	var conf PolicyConfig
+	if path == "" {
+		return defaultConfig(), nil
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var conf PolicyConfig
 	if err := yaml.Unmarshal(data, &conf); err != nil {
 		return nil, err
 	}
 
 	return &conf, nil
+}
+
+// defaultConfig
+func defaultConfig() *PolicyConfig {
+	return &PolicyConfig{
+		HealthyStatus:     []string{"Running", "Init"},
+		ExcludeNamespaces: []string{"kube-system"},
+		CheckDelaySeconds: 180,
+	}
 }
