@@ -4,6 +4,8 @@ import (
 	"flag"
 	"github.com/akii90/cleaner/pkg/config"
 	"github.com/akii90/cleaner/pkg/signals"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -11,6 +13,7 @@ import (
 
 var (
 	kubeconfig       string
+	masterURL        string
 	policyConfig     string
 	cleaningInterval time.Duration
 )
@@ -34,10 +37,27 @@ func main() {
 		"checkDelay", policy.CheckDelaySeconds,
 	)
 
+	// masterURL is used to overwriting api-server url in kubeconfig
+	cfg, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
+	if err != nil {
+		logger.Error(err, "Error building kubeconfig")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
+
+	// kubeClient for generic Kubernetes APIs
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		logger.Error(err, "Error building kubernetes clientset")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
+
+	// Run Cleaner
+
 }
 
 func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&masterURL, "master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&policyConfig, "policy-config", "", "Path to the policy configuration file (yaml)")
 	flag.DurationVar(&cleaningInterval, "cleaning-interval", 0, "Interval for cleaning (e.g. 10m). If 0, runs once and exits.")
 }
