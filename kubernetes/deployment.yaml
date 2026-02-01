@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pod-cleaner
+  namespace: default
+  labels:
+    app: pod-cleaner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pod-cleaner
+  template:
+    metadata:
+      labels:
+        app: pod-cleaner
+    spec:
+      serviceAccountName: pod-cleaner
+      containers:
+      - name: pod-cleaner
+        image: docker.io/vilat/pod-cleaner:v1-arm
+        imagePullPolicy: IfNotPresent
+        command:
+        - /pod-cleaner
+        args:
+        - --policy-config=/policy-dir/policy.yaml
+        - --cleaning-interval=10m
+        volumeMounts:
+        - name: config-volume
+          mountPath: /policy-dir
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: pod-cleaner-policy

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pod-cleaner-policy
+  namespace: default
+data:
+  policy.yaml: |
+    excludePodStatus:
+      - "Running"
+      - "Init"
+    excludeNamespaces:
+      - "kube-system"
+    checkDelaySeconds: 150
