@@ -7,7 +7,7 @@ import (
 )
 
 type PolicyConfig struct {
-	ExcludePodStatus  []string `yaml:"healthyStatus"`
+	ExcludePodStatus  []string `yaml:"excludePodStatus"`
 	ExcludeNamespaces []string `yaml:"excludeNamespaces"`
 	CheckDelaySeconds int      `yaml:"checkDelaySeconds"`
 }

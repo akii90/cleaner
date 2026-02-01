@@ -35,7 +35,7 @@ func main() {
 	}
 	logger.Info("Pod cleaner policy conf",
 		"excludePodStatus", policy.ExcludePodStatus,
-		"excludeNS", policy.ExcludeNamespaces,
+		"excludeNamespaces", policy.ExcludeNamespaces,
 		"checkDelay", policy.CheckDelaySeconds,
 	)
 

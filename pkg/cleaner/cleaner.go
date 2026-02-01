@@ -85,10 +85,10 @@ func (c *PodCleaner) clean(ctx context.Context) {
 	var deletedPodObjects []*corev1.Pod
 
 	for _, pod := range pods {
-		if c.isExcluded(pod) {
+		if c.isExcludedNamespaces(pod) {
 			continue
 		}
-		if c.isNecessary(pod) {
+		if c.isExcludeStatus(pod) {
 			continue
 		}
 
@@ -138,6 +138,8 @@ func (c *PodCleaner) verifyRestarts(ctx context.Context, oldPods []*corev1.Pod) 
 	logger := klog.FromContext(ctx)
 	logger.Info("Verifying restarted pods...")
 
+	uniquePods := make(map[string]*corev1.Pod)
+
 	for _, oldPod := range oldPods {
 		if len(oldPod.Labels) == 0 {
 			continue
@@ -152,16 +154,24 @@ func (c *PodCleaner) verifyRestarts(ctx context.Context, oldPods []*corev1.Pod) 
 		}
 
 		for _, p := range pods {
-			// Check if pod is "new" (< 10 min) and "unhealthy"
-			// Note: We check < 10 min to capture the specific pod that was just restarted
-			if p.Status.StartTime != nil {
-				age := time.Since(p.Status.StartTime.Time)
-				if age < newPodAge {
-					if !c.isNecessary(p) {
-						msg := buildNotificationMessage(p)
-						if err := c.notifier.Send(ctx, msg); err != nil {
-							logger.Error(err, "Failed to send notification", "pod", fmt.Sprintf("%s/%s", p.Namespace, p.Name))
-						}
+			uniquePods[string(p.UID)] = p
+		}
+	}
+
+	c.checkNewPods(ctx, uniquePods)
+}
+
+func (c *PodCleaner) checkNewPods(ctx context.Context, newPods map[string]*corev1.Pod) {
+	logger := klog.FromContext(ctx)
+	for _, p := range newPods {
+		// Check if pod is "new" and "unNecessary"
+		if p.Status.StartTime != nil {
+			age := time.Since(p.Status.StartTime.Time)
+			if age < newPodAge {
+				if !c.isExcludeStatus(p) {
+					msg := buildNotificationMessage(p)
+					if err := c.notifier.Send(ctx, msg); err != nil {
+						logger.Error(err, "Failed to send notification", "pod", fmt.Sprintf("%s/%s", p.Namespace, p.Name))
 					}
 				}
 			}
@@ -169,7 +179,7 @@ func (c *PodCleaner) verifyRestarts(ctx context.Context, oldPods []*corev1.Pod) 
 	}
 }
 
-func (c *PodCleaner) isExcluded(pod *corev1.Pod) bool {
+func (c *PodCleaner) isExcludedNamespaces(pod *corev1.Pod) bool {
 	for _, ns := range c.config.ExcludeNamespaces {
 		if pod.Namespace == ns {
 			return true
@@ -178,8 +188,8 @@ func (c *PodCleaner) isExcluded(pod *corev1.Pod) bool {
 	return false
 }
 
-func (c *PodCleaner) isNecessary(pod *corev1.Pod) bool {
-	// Check status
+func (c *PodCleaner) isExcludeStatus(pod *corev1.Pod) bool {
+	// Check pod status
 	phaseMatch := false
 	for _, status := range c.config.ExcludePodStatus {
 		if strings.EqualFold(string(pod.Status.Phase), status) {
