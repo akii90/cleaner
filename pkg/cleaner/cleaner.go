@@ -19,12 +19,16 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// newPodAge is a standard for new pod
+const newPodAge = 10 * time.Minute
+
 type PodCleaner struct {
 	kubeclientset kubernetes.Interface
 	podLister     corelisters.PodLister
 	podsSynced    cache.InformerSynced
 	config        *config.PolicyConfig
 	interval      time.Duration
+	notifier      NotificationSender
 }
 
 func NewPodCleaner(
@@ -39,6 +43,7 @@ func NewPodCleaner(
 		podsSynced:    podInformer.Informer().HasSynced,
 		config:        conf,
 		interval:      interval,
+		notifier:      NewDemoSender(),
 	}
 }
 
@@ -75,57 +80,108 @@ func (c *PodCleaner) clean(ctx context.Context) {
 		return
 	}
 
-	processedCount := 0
 	deletedCount := 0
+	var deletedPods []string
+	var deletedPodObjects []*corev1.Pod
 
 	for _, pod := range pods {
-		processedCount++
 		if c.isExcluded(pod) {
 			continue
 		}
-		if c.isHealthy(pod) {
+		if c.isNecessary(pod) {
 			continue
 		}
 
 		// Action: Delete
 		logger.Info("Found Unhealthy Pod",
-			"namespace", pod.ObjectMeta.Namespace,
-			"name", pod.ObjectMeta.Name,
+			"namespace", pod.Namespace,
+			"name", pod.Name,
 			"status", pod.Status.Phase)
 
 		// Skip not existed pod
-		if _, err := c.podLister.Pods(pod.ObjectMeta.Namespace).Get(pod.ObjectMeta.Name); err != nil {
+		if _, err := c.podLister.Pods(pod.Namespace).Get(pod.Name); err != nil {
 			if errors.IsNotFound(err) {
 				continue
 			}
 		}
 
-		err := c.kubeclientset.CoreV1().Pods(pod.ObjectMeta.Namespace).Delete(ctx, pod.ObjectMeta.Name, metav1.DeleteOptions{})
+		err := c.kubeclientset.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
 		if err != nil {
-			logger.Error(err, "Failed to delete pod", "namespace", pod.ObjectMeta.Namespace, "name", pod.ObjectMeta.Name)
+			logger.Error(err, "Failed to delete pod", "namespace", pod.Namespace, "name", pod.Name)
 		} else {
 			deletedCount++
-			logger.Info("Deleted pod", "namespace", pod.ObjectMeta.Namespace, "name", pod.ObjectMeta.Name)
+			deletedPods = append(deletedPods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+			deletedPodObjects = append(deletedPodObjects, pod) // Store for verification
+			logger.Info("Deleted pod", "namespace", pod.Namespace, "name", pod.Name)
 		}
 	}
 
 	duration := time.Since(startTime)
-	logger.Info("Cycle Finished", "duration", duration, "processed", processedCount, "deleted", deletedCount)
+	logger.Info("Clean Process Finished", "duration", duration, "deleted", deletedCount)
+	if len(deletedPods) > 0 {
+		logger.Info("Deleted Pods Summary", "pods", deletedPods)
+
+		// Verify restarted pods
+		checkDelay := time.Duration(c.config.CheckDelaySeconds) * time.Second
+		logger.Info("Waiting for pods to restart...", "delay", checkDelay)
+
+		select {
+		case <-time.After(checkDelay):
+			c.verifyRestarts(ctx, deletedPodObjects)
+		case <-ctx.Done():
+			logger.Info("Context cancelled before verify restarted pods")
+		}
+	}
+}
+
+func (c *PodCleaner) verifyRestarts(ctx context.Context, oldPods []*corev1.Pod) {
+	logger := klog.FromContext(ctx)
+	logger.Info("Verifying restarted pods...")
+
+	for _, oldPod := range oldPods {
+		if len(oldPod.Labels) == 0 {
+			continue
+		}
+
+		// List pods with same labels
+		selector := labels.Set(oldPod.Labels).AsSelector()
+		pods, err := c.podLister.Pods(oldPod.Namespace).List(selector)
+		if err != nil {
+			logger.Error(err, "Failed to list pods for verification", "namespace", oldPod.Namespace, "labels", oldPod.Labels)
+			continue
+		}
+
+		for _, p := range pods {
+			// Check if pod is "new" (< 10 min) and "unhealthy"
+			// Note: We check < 10 min to capture the specific pod that was just restarted
+			if p.Status.StartTime != nil {
+				age := time.Since(p.Status.StartTime.Time)
+				if age < newPodAge {
+					if !c.isNecessary(p) {
+						msg := buildNotificationMessage(p)
+						if err := c.notifier.Send(ctx, msg); err != nil {
+							logger.Error(err, "Failed to send notification", "pod", fmt.Sprintf("%s/%s", p.Namespace, p.Name))
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 func (c *PodCleaner) isExcluded(pod *corev1.Pod) bool {
 	for _, ns := range c.config.ExcludeNamespaces {
-		if pod.ObjectMeta.Namespace == ns {
+		if pod.Namespace == ns {
 			return true
 		}
 	}
 	return false
 }
 
-func (c *PodCleaner) isHealthy(pod *corev1.Pod) bool {
+func (c *PodCleaner) isNecessary(pod *corev1.Pod) bool {
 	// Check status
 	phaseMatch := false
-	for _, status := range c.config.HealthyStatus {
+	for _, status := range c.config.ExcludePodStatus {
 		if strings.EqualFold(string(pod.Status.Phase), status) {
 			phaseMatch = true
 			break

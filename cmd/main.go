@@ -34,7 +34,7 @@ func main() {
 		logger.Error(err, "Error loading policy config")
 	}
 	logger.Info("Pod cleaner policy conf",
-		"healthyStatus", policy.HealthyStatus,
+		"excludePodStatus", policy.ExcludePodStatus,
 		"excludeNS", policy.ExcludeNamespaces,
 		"checkDelay", policy.CheckDelaySeconds,
 	)

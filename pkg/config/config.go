@@ -7,7 +7,7 @@ import (
 )
 
 type PolicyConfig struct {
-	HealthyStatus     []string `yaml:"healthyStatus"`
+	ExcludePodStatus  []string `yaml:"healthyStatus"`
 	ExcludeNamespaces []string `yaml:"excludeNamespaces"`
 	CheckDelaySeconds int      `yaml:"checkDelaySeconds"`
 }
@@ -35,7 +35,7 @@ func LoadConfig(path string) (*PolicyConfig, error) {
 // defaultConfig
 func defaultConfig() *PolicyConfig {
 	return &PolicyConfig{
-		HealthyStatus:     []string{"Running", "Init"},
+		ExcludePodStatus:  []string{"Running", "Init"},
 		ExcludeNamespaces: []string{"kube-system"},
 		CheckDelaySeconds: 180,
 	}
