@@ -5,6 +5,7 @@ import (
 	"github.com/akii90/cleaner/pkg/cleaner"
 	"github.com/akii90/cleaner/pkg/config"
 	"github.com/akii90/cleaner/pkg/signals"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -53,7 +54,7 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	kubeInformerFactory := informers.NewSharedInformerFactory(kubeClient, time.Hour*24)
+	kubeInformerFactory := informers.NewSharedInformerFactoryWithOptions(kubeClient, 0, informers.WithTransform(trimPod))
 
 	// ctx, clientSet, informer
 	pc := cleaner.NewPodCleaner(kubeClient, kubeInformerFactory.Core().V1().Pods(), policy, cleaningInterval)
@@ -67,6 +68,16 @@ func main() {
 		logger.Error(err, "Error running cleaner")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
+}
+
+func trimPod(obj interface{}) (interface{}, error) {
+	if pod, ok := obj.(*corev1.Pod); ok {
+		// Trim fields which are not needed
+		pod.ObjectMeta.ManagedFields = nil
+		pod.Spec = corev1.PodSpec{}
+		return pod, nil
+	}
+	return obj, nil
 }
 
 func init() {

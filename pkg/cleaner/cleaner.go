@@ -70,7 +70,7 @@ func (c *PodCleaner) Run(ctx context.Context) error {
 
 func (c *PodCleaner) clean(ctx context.Context) {
 	logger := klog.FromContext(ctx)
-	logger.V(4).Info("Starting Cleaning")
+	logger.Info("Starting Cleaning")
 	startTime := time.Now()
 
 	// TODO: reduce memory usage
@@ -163,7 +163,7 @@ func (c *PodCleaner) checkNewPods(ctx context.Context, newPods map[string]*corev
 
 	for _, p := range newPods {
 		if c.isExcludeStatus(p) {
-			logger.Info("Pod skipped due to status exclusion", "namespace", p.Namespace, "pod", p.Name, "status", p.Status.Phase)
+			logger.V(4).Info("Pod skipped due to status exclusion", "namespace", p.Namespace, "pod", p.Name, "status", p.Status.Phase)
 			continue
 		}
 		// If StartTime is nil, age is 0, which is < newPodAge
