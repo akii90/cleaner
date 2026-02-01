@@ -70,7 +70,7 @@ func (c *PodCleaner) Run(ctx context.Context) error {
 
 func (c *PodCleaner) clean(ctx context.Context) {
 	logger := klog.FromContext(ctx)
-	logger.V(3).Info("Starting Cleaning")
+	logger.V(4).Info("Starting Cleaning")
 	startTime := time.Now()
 
 	// TODO: reduce memory usage
@@ -93,7 +93,7 @@ func (c *PodCleaner) clean(ctx context.Context) {
 		}
 
 		// Action: Delete
-		logger.Info("Found Unhealthy Pod",
+		logger.V(4).Info("Found Unnecessary Pod",
 			"namespace", pod.Namespace,
 			"name", pod.Name,
 			"status", pod.Status.Phase)
@@ -112,7 +112,7 @@ func (c *PodCleaner) clean(ctx context.Context) {
 			deletedCount++
 			deletedPods = append(deletedPods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
 			deletedPodObjects = append(deletedPodObjects, pod) // Store for verification
-			logger.Info("Deleted pod", "namespace", pod.Namespace, "name", pod.Name)
+			logger.V(4).Info("Deleted pod", "namespace", pod.Namespace, "name", pod.Name)
 		}
 	}
 
@@ -163,18 +163,29 @@ func (c *PodCleaner) verifyRestarts(ctx context.Context, oldPods []*corev1.Pod) 
 
 func (c *PodCleaner) checkNewPods(ctx context.Context, newPods map[string]*corev1.Pod) {
 	logger := klog.FromContext(ctx)
+	logger.Info("Checking new pods", "count", len(newPods))
+
 	for _, p := range newPods {
-		// Check if pod is "new" and "unNecessary"
+		if c.isExcludeStatus(p) {
+			logger.Info("Pod skipped due to status exclusion", "pod", p.Name, "status", p.Status.Phase)
+			continue
+		}
+
+		var age time.Duration
 		if p.Status.StartTime != nil {
-			age := time.Since(p.Status.StartTime.Time)
-			if age < newPodAge {
-				if !c.isExcludeStatus(p) {
-					msg := buildNotificationMessage(p)
-					if err := c.notifier.Send(ctx, msg); err != nil {
-						logger.Error(err, "Failed to send notification", "pod", fmt.Sprintf("%s/%s", p.Namespace, p.Name))
-					}
-				}
+			age = time.Since(p.Status.StartTime.Time)
+		}
+		// If StartTime is nil, age is 0, which is < newPodAge
+
+		logger.Info("Checking pod details", "pod", p.Name, "age", age, "status", p.Status.Phase)
+
+		if age < newPodAge {
+			msg := buildNotificationMessage(p)
+			if err := c.notifier.Send(ctx, msg); err != nil {
+				logger.Error(err, "Failed to send notification", "pod", fmt.Sprintf("%s/%s", p.Namespace, p.Name))
 			}
+		} else {
+			logger.Info("Pod skipped due to age", "pod", p.Name, "age", age, "threshold", newPodAge)
 		}
 	}
 }
