@@ -80,8 +80,8 @@ func (c *PodCleaner) clean(ctx context.Context) {
 		return
 	}
 
-	deletedCount := 0
 	var deletedPods []string
+	// Store oldPod for verification
 	var deletedPodObjects []*corev1.Pod
 
 	for _, pod := range pods {
@@ -93,10 +93,7 @@ func (c *PodCleaner) clean(ctx context.Context) {
 		}
 
 		// Action: Delete
-		logger.V(4).Info("Found Unnecessary Pod",
-			"namespace", pod.Namespace,
-			"name", pod.Name,
-			"status", pod.Status.Phase)
+		logger.V(4).Info("Found Unnecessary Pod", "namespace", pod.Namespace, "name", pod.Name, "status", pod.Status.Phase)
 
 		// Skip not existed pod
 		if _, err := c.podLister.Pods(pod.Namespace).Get(pod.Name); err != nil {
@@ -109,15 +106,14 @@ func (c *PodCleaner) clean(ctx context.Context) {
 		if err != nil {
 			logger.Error(err, "Failed to delete pod", "namespace", pod.Namespace, "name", pod.Name)
 		} else {
-			deletedCount++
 			deletedPods = append(deletedPods, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
-			deletedPodObjects = append(deletedPodObjects, pod) // Store for verification
+			deletedPodObjects = append(deletedPodObjects, pod)
 			logger.V(4).Info("Deleted pod", "namespace", pod.Namespace, "name", pod.Name)
 		}
 	}
 
 	duration := time.Since(startTime)
-	logger.Info("Clean Process Finished", "duration", duration, "deleted", deletedCount)
+	logger.Info("Clean Process Finished", "duration", duration, "deleted", len(deletedPods))
 	if len(deletedPods) > 0 {
 		logger.Info("Deleted Pods Summary", "pods", deletedPods)
 
@@ -170,22 +166,12 @@ func (c *PodCleaner) checkNewPods(ctx context.Context, newPods map[string]*corev
 			logger.Info("Pod skipped due to status exclusion", "namespace", p.Namespace, "pod", p.Name, "status", p.Status.Phase)
 			continue
 		}
-
-		var age time.Duration
-		if p.Status.StartTime != nil {
-			age = time.Since(p.Status.StartTime.Time)
-		}
-
-		logger.V(4).Info("Checking pod details", "namespace", p.Namespace, "pod", p.Name, "age", age, "status", p.Status.Phase)
-
 		// If StartTime is nil, age is 0, which is < newPodAge
-		if age < newPodAge {
+		if isNewPod(ctx, p) {
 			msg := buildNotificationMessage(p)
 			if err := c.notifier.Send(ctx, msg); err != nil {
 				logger.Error(err, "Failed to send notification", "namespace", p.Namespace, "pod", p.Name)
 			}
-		} else {
-			logger.Info("Pod skipped due to age", "namespace", p.Namespace, "pod", p.Name, "age", age, "threshold", newPodAge)
 		}
 	}
 }
@@ -208,4 +194,26 @@ func (c *PodCleaner) isExcludeStatus(pod *corev1.Pod) bool {
 		}
 	}
 	return phaseMatch
+}
+
+func isNewPod(ctx context.Context, pod *corev1.Pod) bool {
+	logger := klog.FromContext(ctx)
+
+	var age time.Duration
+	if pod.Status.StartTime != nil {
+		age = time.Since(pod.Status.StartTime.Time)
+	}
+
+	logger.V(4).Info("Checking pod age",
+		"namespace", pod.Namespace,
+		"pod", pod.Name,
+		"age", age,
+		"threshold", newPodAge,
+		"status", pod.Status.Phase)
+
+	// If StartTime is nil, age is 0, which is < newPodAge
+	if age < newPodAge {
+		return true
+	}
+	return false
 }
