@@ -167,7 +167,7 @@ func (c *PodCleaner) checkNewPods(ctx context.Context, newPods map[string]*corev
 
 	for _, p := range newPods {
 		if c.isExcludeStatus(p) {
-			logger.Info("Pod skipped due to status exclusion", "pod", p.Name, "status", p.Status.Phase)
+			logger.Info("Pod skipped due to status exclusion", "namespace", p.Namespace, "pod", p.Name, "status", p.Status.Phase)
 			continue
 		}
 
@@ -175,17 +175,17 @@ func (c *PodCleaner) checkNewPods(ctx context.Context, newPods map[string]*corev
 		if p.Status.StartTime != nil {
 			age = time.Since(p.Status.StartTime.Time)
 		}
+
+		logger.V(4).Info("Checking pod details", "namespace", p.Namespace, "pod", p.Name, "age", age, "status", p.Status.Phase)
+
 		// If StartTime is nil, age is 0, which is < newPodAge
-
-		logger.Info("Checking pod details", "pod", p.Name, "age", age, "status", p.Status.Phase)
-
 		if age < newPodAge {
 			msg := buildNotificationMessage(p)
 			if err := c.notifier.Send(ctx, msg); err != nil {
-				logger.Error(err, "Failed to send notification", "pod", fmt.Sprintf("%s/%s", p.Namespace, p.Name))
+				logger.Error(err, "Failed to send notification", "namespace", p.Namespace, "pod", p.Name)
 			}
 		} else {
-			logger.Info("Pod skipped due to age", "pod", p.Name, "age", age, "threshold", newPodAge)
+			logger.Info("Pod skipped due to age", "namespace", p.Namespace, "pod", p.Name, "age", age, "threshold", newPodAge)
 		}
 	}
 }
@@ -200,7 +200,6 @@ func (c *PodCleaner) isExcludedNamespaces(pod *corev1.Pod) bool {
 }
 
 func (c *PodCleaner) isExcludeStatus(pod *corev1.Pod) bool {
-	// Check pod status
 	phaseMatch := false
 	for _, status := range c.config.ExcludePodStatus {
 		if strings.EqualFold(string(pod.Status.Phase), status) {
